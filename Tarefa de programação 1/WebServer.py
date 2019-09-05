@@ -55,7 +55,7 @@ class HttpRequest:
 		else:																									#caso seja uma extensao desconhecida
 			return("application/octet-stream")																	#retornamos o content type para extensoes desconhecidas
 
-serverPort = 1313																								#definimos a porta do servidor
+serverPort = 1313																							#definimos a porta do servidor
 serverSocket = socket(AF_INET,SOCK_STREAM)																		#criamos o socket TCP de entrada
 serverSocket.bind(('',serverPort))																				#associamos a porta do servidor ao socket
 serverSocket.listen(1)																							#ficamos escutando ate que um cliente bata
