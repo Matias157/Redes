@@ -31,12 +31,12 @@ class HttpRequest:
 			fileExists = False																					#caso ocorra a excecoes a veriavel e setada para falso
 
 		if(fileExists):																							#caso o aqruivo exista
-			statusLine = "HTTP/1.1 200 OK" + self.CRLF															#criamos o status line com codigo de status OK
+			statusLine = "HTTP/1.0 200 OK" + self.CRLF															#criamos o status line com codigo de status OK
 			contentTypeLine = "Content-type: " + self.contentType(fileName) + self.CRLF + self.CRLF				#criamos apenas uma linha de header com o content type (e preciso coloca dois CRLF para indicar que essa e ultima linha do header)
 			with open(fileName, 'r') as myfile:																	#abrimos o araquivo solicitado
 				entityBody = myfile.read()																		#passamos os bits do arquivo para uma string
 		else:																									#caso o arquivo nao exista
-			statusLine = "HTTP/1.1 404 Not Found" + self.CRLF													#criamos o status line com codigo de status Not Found
+			statusLine = "HTTP/1.0 404 Not Found" + self.CRLF													#criamos o status line com codigo de status Not Found
 			contentTypeLine = "Content-type: " + "text/html" + self.CRLF + self.CRLF							#como a pegina de erro eh sempre a mesma o content type sera sempre text/html
 			entityBody = "<HTML>" + "<HEAD><TITLE>Not Found</TITLE></HEAD>" + "<BODY>Not Found</BODY></HTML>"	#string contendo o codigo html da pagina de erro
 
@@ -49,13 +49,13 @@ class HttpRequest:
 		if(fileName.split(".")[-1] == "html" or fileName.split(".")[-1] == "htm"):								#pegamos apenas a substring apos a virgula e testemos se e html ou hml
 			return("text/html")																					#retornamos o content type para html
 		elif(fileName.split(".")[-1] == "jpg"):																	#testasmos se e jpg
-			return("image/jpegl")																				#retornamos o content type para jpg
+			return("image/jpg")																					#retornamos o content type para jpg
 		elif(fileName.split(".")[-1] == "gif"):																	#testemos se e gif
 			return("image/gif")																					#retornamos o content type para gif
 		else:																									#caso seja uma extensao desconhecida
 			return("application/octet-stream")																	#retornamos o content type para extensoes desconhecidas
 
-serverPort = 1313																							#definimos a porta do servidor
+serverPort = 1313																								#definimos a porta do servidor
 serverSocket = socket(AF_INET,SOCK_STREAM)																		#criamos o socket TCP de entrada
 serverSocket.bind(('',serverPort))																				#associamos a porta do servidor ao socket
 serverSocket.listen(1)																							#ficamos escutando ate que um cliente bata
