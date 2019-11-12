@@ -16,8 +16,8 @@
 
 #define BIDIRECTIONAL 0    /* change to 1 if you're doing extra credit */
                            /* and write a routine called B_output */
-#define TIME_OUT 24.0
-#define DEBUG 1
+#define TIME_OUT 15.0 //valor do timeout
+#define TAM_MAX_JANELA 64 //tamanho da janela
 
 /* a "msg" is the data unit passed from layer 5 (teachers code) to layer  */
 /* 4 (students' code).  It contains the data (characters) to be delivered */
@@ -40,8 +40,12 @@ struct pkt {
 
 int num_seq_esperado_env; //numero de sequencia do pacote enviado por A
 int num_seq_esperado_rec; //numero de sequencia esperado para ser recebido por B
-int espera; //flag que faz o controle de paralelismo
+int num_seq_inic_janela; //numero de sequencia do primeiro pacote da janela
+int num_seq_fim_janela; //numero de sequencia do ultimo pacote da janela
+int tam_atual_janela; //tamanho atual da janela
+struct pkt janela[TAM_MAX_JANELA]; //janela que contem os pacotes
 struct pkt pacote_esperado; //pacote que esta sendo enviado de A para B
+struct pkt pacote_para_enviar; //pacote que sera enviado de B
 
 int calculaChecksum(packet) //faz o calculo do checksum
 	struct pkt packet;
@@ -54,95 +58,116 @@ int calculaChecksum(packet) //faz o calculo do checksum
     return checksum;
 }
 
-/* called from layer 5, passed the data to be sent to other side */
-A_output(message)
+A_output(message) //chamada pela camanda de aplicacao, passa a mensagem que deve ser enviada ao remetente
 	struct msg message;
 {
-	if(espera) //se estiver em espera
-		return;
-	memcpy(pacote_esperado.payload, message.data, sizeof(message.data)); //copia o conteudo da mensagem da camada de aplicacao para o pacote
-	pacote_esperado.seqnum = num_seq_esperado_env; //define o numero de sequencia do pacote
-	pacote_esperado.checksum = 0; //inicializa o checksum do pacote com zero
-	pacote_esperado.checksum = calculaChecksum(pacote_esperado); //calcula o checksum do pacote
-	tolayer3(0, pacote_esperado); //envia o pacote para B
-	starttimer(0, TIME_OUT); //inicia o timer do pacote
-	espera = 1; //atualiza a flag de espera para evitar que outros pacote sejam eviados em paralelo
-	if(DEBUG){
-		printf("num_seq = %d, ack = %d, checksum = %x, ", pacote_esperado.seqnum, pacote_esperado.acknum, pacote_esperado.checksum);
-		int i;
-		for (i = 0; i < 20; i++)
-			printf("%c", pacote_esperado.payload[i]);
-		printf("\n");
-	}
+	if(num_seq_esperado_env - num_seq_inic_janela >= TAM_MAX_JANELA)
+    {
+        printf("Janela cheia, descartando a mensagem: %s\n", message.data);
+        return;
+    }
+    printf("Pacote adicionada a janela (seq=%d): %s\n", num_seq_esperado_env, message.data);
+	memcpy(janela[num_seq_esperado_env % TAM_MAX_JANELA].payload, message.data, sizeof(message.data)); //copia o conteudo da mensagem da camada de aplicacao para o pacote
+	janela[num_seq_esperado_env % TAM_MAX_JANELA].seqnum = num_seq_esperado_env; //define o numero de sequencia do pacote
+	janela[num_seq_esperado_env % TAM_MAX_JANELA].checksum = 0; //inicializa o checksum do pacote com zero
+	janela[num_seq_esperado_env % TAM_MAX_JANELA].checksum = calculaChecksum(janela[num_seq_esperado_env % TAM_MAX_JANELA]); //calcula o checksum do pacote
+	++num_seq_esperado_env;
+	while(num_seq_fim_janela < num_seq_esperado_env && num_seq_fim_janela < num_seq_inic_janela + tam_atual_janela)
+    {
+        printf("Enviando pacote (seq=%d): %s\n", janela[num_seq_fim_janela % TAM_MAX_JANELA].seqnum, janela[num_seq_fim_janela % TAM_MAX_JANELA].payload);
+        tolayer3(0, janela[num_seq_fim_janela % TAM_MAX_JANELA]);
+        if (num_seq_inic_janela == num_seq_fim_janela)
+            starttimer(0, TIME_OUT);
+        ++num_seq_fim_janela;
+    }
 }
 
-B_output(message)  /* need be completed only for extra credit */
+B_output(message)
 	struct msg message;
 {
 	
 }
 
-/* called from layer 3, when a packet arrives for layer 4 */
-A_input(packet)
+A_input(packet) //chamada pela camada de rede, quando um pacote chega para a camada de transporte
 	struct pkt packet;
 {
-	stoptimer(0); //timer eh parado
-
-	if(packet.acknum == num_seq_esperado_env) {	//verifica se o pacote eh o esperado
-		num_seq_esperado_env = 1 - num_seq_esperado_env; //atualiza o valor do pacote esperado
-		espera = 0; //flag de espera eh zerada permitindo que o proximo pacote seja enviado
-	} 
-	else if(packet.acknum == -1) { //se o numero de ACK for -1 significa que o pacote esta corrompido e deve ser retransmitido
-		tolayer3(0, pacote_esperado); //pacote eh retransmitido
-		starttimer(0, TIME_OUT); //timer eh reiniciado
-	}
+	if (packet.checksum != calculaChecksum(packet))
+    {
+        printf("Pacote corrompido, descartando\n");
+        return;
+    }
+    if (packet.acknum < num_seq_inic_janela)
+    {
+        printf("Recebeu NACK (ACK=%d), descartando\n", packet.acknum);
+        return;
+    }
+    printf("Recebeu ACK (ACK=%d)\n", packet.acknum);
+    num_seq_inic_janela = packet.acknum + 1;
+    if (num_seq_inic_janela == num_seq_fim_janela)
+    {
+        stoptimer(0);
+        printf("Timer parado\n");
+        while(num_seq_fim_janela < num_seq_esperado_env && num_seq_fim_janela < num_seq_inic_janela + tam_atual_janela)
+	    {
+	        printf("  send_window: send packet (seq=%d): %s\n", janela[num_seq_fim_janela % TAM_MAX_JANELA].seqnum, janela[num_seq_fim_janela % TAM_MAX_JANELA].payload);
+	        tolayer3(0, janela[num_seq_fim_janela % TAM_MAX_JANELA]);
+	        if (num_seq_inic_janela == num_seq_fim_janela)
+	            starttimer(0, TIME_OUT);
+	        ++num_seq_fim_janela;
+	    }
+    }
+    else
+    {
+        starttimer(0, TIME_OUT);
+        printf("Timer + %f\n", TIME_OUT);
+    }
 }
 
-/* called when A's timer goes off */
-A_timerinterrupt()
+A_timerinterrupt() //chamada quando o timer de A acaba
 {
-	tolayer3(0, pacote_esperado); //se ocorrer timeout o pacote deve ser retransmitido
-	starttimer(0, TIME_OUT); //o timer eh reiniciado
+	for (int i = num_seq_inic_janela; i < num_seq_fim_janela; ++i)
+    {
+        printf("retransmitido pacote (seq=%d): %s\n", janela[i % TAM_MAX_JANELA].seqnum, janela[i % TAM_MAX_JANELA].payload);
+        tolayer3(0, janela[i % TAM_MAX_JANELA]);
+    }
+    starttimer(0, TIME_OUT);
+    printf("Timer + %f\n", TIME_OUT);
 }  
 
 /* the following routine will be called once (only) before any other */
 /* entity A routines are called. You can use it to do any initialization */
 A_init()
 {
-	num_seq_esperado_env = 0; //numero de sequencia inicial eh zero
-	espera = 0; //flag de espera eh zerada permitindo que pacotes sejam enviados
+	num_seq_inic_janela = 1;
+    num_seq_fim_janela = 1;
+    tam_atual_janela = 8;
+    num_seq_esperado_env = 1;
 }
-
-/* Note that with simplex transfer from a-to-B, there is no B_output() */
 
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 B_input(packet)
 	struct pkt packet;
 {
-	if(packet.seqnum == num_seq_esperado_rec) { //caso o pacote recebido seja o esperado
-		if(calculaChecksum(packet) != packet.checksum) { //se o checksum estiver incorreto
-			printf("NACK\n");
-			struct pkt NACK; //cria o pacote de NACK
-			NACK.acknum = -1; //define o numero de ACK como -1
-			tolayer3(1, NACK); //envia o NACK
-			return;
-		}
-		struct msg message; //cria a mensagem que vai ser enviada para camada de aplicacao
-		memcpy(message.data, packet.payload, sizeof(packet.payload)); //copia o conteudo do pacote para a mensagem criada
-		tolayer5(1, message); //envia a mensagem
-		num_seq_esperado_rec = 1 - num_seq_esperado_rec; //atualiza o numero de sequencia do pacote esperado
-		if(DEBUG){
-			printf("ACK: ");
-			printf("num_seq = %d, ack = %d, checksum = %x, ", packet.seqnum, packet.acknum, packet.checksum);
-			int i;
-			for (i = 0; i < 20; i++)
-				printf("%c", packet.payload[i]);
-			printf("\n");
-		}
+	if(packet.checksum != calculaChecksum(packet)){ //se o checksum estiver incorreto
+		printf("Checksum incorreto, enviando NACK (ACK=%d)\n", pacote_para_enviar.acknum);
+		tolayer3(1, pacote_para_enviar); //envia o NACK
+		return;
 	}
-	struct pkt ACK; //cria o pacote de ACK
-	ACK.acknum = packet.seqnum; //define o numero de ACK do pacote como o numero de sequencia do pacote que foi acknoleged
-	tolayer3(1, ACK); //envia o ACK para A
+	if(packet.seqnum != num_seq_esperado_rec){ //caso o pacote recebido nao seja o esperado
+		printf("Pacote nao esperado, enviando NACK (ACK=%d)\n", pacote_para_enviar.acknum);
+		tolayer3(1, pacote_para_enviar); //envia o NACK
+		return;
+	}
+
+	printf("Pacote recebido: (seq=%d): %s\n", packet.seqnum, packet.payload);
+	tolayer5(1, packet.payload);
+
+	printf("ACK enviado: (seq=%d), %s\n", packet.seqnum, packet.payload);
+	pacote_para_enviar.acknum = num_seq_esperado_rec;
+	pacote_para_enviar.checksum = calculaChecksum(pacote_para_enviar);
+	tolayer3(1, pacote_para_enviar);
+	
+	++num_seq_esperado_rec;
 }
 
 /* called when B's timer goes off */
@@ -155,7 +180,11 @@ B_timerinterrupt()
 /* entity B routines are called. You can use it to do any initialization */
 B_init()
 {
-	num_seq_esperado_rec = 0; //numero de sequencia inicial esperado eh zero
+	num_seq_esperado_rec = 1; //numero de sequencia inicial esperado eh zero
+	pacote_para_enviar.seqnum = -1;
+	pacote_para_enviar.acknum = 0;
+	memset(pacote_para_enviar.payload, 0, 20);
+	pacote_para_enviar.checksum = calculaChecksum(pacote_para_enviar);
 }
 
 /*****************************************************************
