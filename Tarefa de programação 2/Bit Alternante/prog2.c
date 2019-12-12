@@ -48,7 +48,8 @@ int calculaChecksum(packet) //faz o calculo do checksum
     int checksum = 0; //soma inicia em zero
     checksum += packet.seqnum; //adcionamos o numero de sequencia do pacote
     checksum += packet.acknum; //adcionamos o numero de ACK do pacote
-    for (int i = 0; i < 20; ++i) 
+	int i;
+    for (i = 0; i < 20; ++i) 
         checksum += packet.payload[i]; //somamos o tamanho de cada um dos caracteres da mensagem
     return checksum;
 }
@@ -65,7 +66,7 @@ A_output(message) //chamada pela camanda de aplicacao, passa a mensagem que deve
 	pacote_esperado.seqnum = num_seq_esperado_env; //define o numero de sequencia do pacote
 	pacote_esperado.checksum = 0; //inicializa o checksum do pacote com zero
 	pacote_esperado.checksum = calculaChecksum(pacote_esperado); //calcula o checksum do pacote
-	printf("Pacote enviado: num_seq = %d, ack = %d, checksum = %x, %s\n", pacote_esperado.seqnum, pacote_esperado.acknum, pacote_esperado.checksum, message.data);
+	printf("Pacote enviado: %s\n", message.data);
 	espera = 1; //atualiza a flag de espera para evitar que outros pacote sejam eviados em paralelo
 	tolayer3(0, pacote_esperado); //envia o pacote para B
 	starttimer(0, TIME_OUT); //inicia o timer do pacote
@@ -144,7 +145,6 @@ B_input(packet)
 	struct msg message; //cria a mensagem que vai ser enviada para camada de aplicacao
 	memcpy(message.data, packet.payload, sizeof(packet.payload)); //copia o conteudo do pacote para a mensagem criada
 	printf("ACK enviado: ");
-	printf("num_seq = %d, ack = %d, checksum = %x, ", packet.seqnum, packet.acknum, packet.checksum);
 	int i;
 	for (i = 0; i < 20; i++)
 		printf("%c", packet.payload[i]);
